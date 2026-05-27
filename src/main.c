@@ -40,21 +40,30 @@ int main(void) {
   UART_SendString("\r\n --- Tacometro en Hardware (PA0) ---\r\n");
 
   while (1) {
+    char tx_buff[96];
 
-    char tx_buff[64];
+    // 1. Calculate period in microseconds (10us per tick)
+    uint32_t period_us = (period_capture + 1) * 10UL;
 
-    // El programa lee el ultimo valor guardado en RAM for el DMA
-    uint32_t period_us = (period_capture + 1) * 100;
-    uint32_t hz = (1000000UL + (period_us / 2)) / period_us;
-    uint32_t rpm = hz * 60UL;
+    if (period_us > 0) {
+      // Q10 Fixed-point arithmetic : 10bit.22bit
+      uint32_t hz_Q10 = (1024000000UL + (period_us / 2)) / period_us;
 
-    sprintf(tx_buff, "period: %u us | hz: %u | rpm: %u\r\n", period_us, hz,
-            rpm);
+      uint32_t rpm_Q10 = hz_Q10 * 60UL;
+
+      uint32_t rpm_int = rpm_Q10 >> 10;
+      uint32_t rpm_frac = ((rpm_Q10 & 0x3FF) * 100) >> 10;
+
+      uint32_t hz_int = hz_Q10 >> 10;
+      uint32_t hz_frac = ((hz_Q10 & 0x3FF) * 100) >> 10;
+
+      sprintf(tx_buff, "period: %u us | hz: %u.%02u | rpm: %u.%02u\r\n",
+              period_us, hz_int, hz_frac, rpm_int, rpm_frac);
+    } else {
+      sprintf(tx_buff, "rpm: 0.00\r\n");
+    }
 
     UART_SendString(tx_buff);
-
-    LL_GPIO_TogglePin(LED_PORT, LED_PIN);
-
     LL_mDelay(200);
   }
 }
@@ -155,7 +164,7 @@ void TIM2_Init(void) {
 
   // Configuracion de timer
   LL_TIM_SetClockSource(TIM2, LL_TIM_CLOCKSOURCE_INTERNAL);
-  LL_TIM_SetPrescaler(TIM2, 7200 - 1); // 100us
+  LL_TIM_SetPrescaler(TIM2, 720 - 1); // 10us
   LL_TIM_SetAutoReload(TIM2, 0xFFFF);
 
   // Configuracion de canal de entrada
